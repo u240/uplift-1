@@ -1,25 +1,3 @@
-/*
-Copyright (c) 2022 Gemba Advantage
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-
 package main
 
 import (
@@ -27,8 +5,6 @@ import (
 	"io"
 
 	"github.com/gembaadvantage/uplift/internal/context"
-	"github.com/gembaadvantage/uplift/internal/middleware/logging"
-	"github.com/gembaadvantage/uplift/internal/middleware/skip"
 	"github.com/gembaadvantage/uplift/internal/semver"
 	"github.com/gembaadvantage/uplift/internal/task"
 	"github.com/gembaadvantage/uplift/internal/task/bump"
@@ -45,9 +21,28 @@ import (
 )
 
 const (
-	bumpDesc = `Bumps the semantic version within files in your git repository. The
-version bump is based on the conventional commit message from the last commit.
-Uplift can bump the version in any file using regex pattern matching`
+	bumpLongDesc = `Calculates the next semantic version based on the conventional commits since the
+last release (or identifiable tag) and bumps (or patches) a configurable set of
+files with said version. JSON Path or Regex Pattern matching is supported when
+scanning files for an existing semantic version. Uplift automatically handles
+the staging and pushing of modified files to the git remote, but this behavior
+can be disabled, to manage this action manually.
+
+Configuring a bump requires an Uplift configuration file to exist within the
+root of your project:
+
+https://upliftci.dev/bumping-files/`
+
+	bumpExamples = `
+# Bump (patch) all configured files with the next calculated semantic version
+uplift bump
+
+# Append a prerelease suffix to the next calculated semantic version
+uplift bump --prerelease beta.1
+
+# Bump (patch) all configured files but do not stage or push any changes
+# back to the git remote
+uplift bump --no-stage`
 )
 
 type bumpOptions struct {
@@ -68,11 +63,12 @@ func newBumpCmd(gopts *globalOptions, out io.Writer) *bumpCommand {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "bump",
-		Short: "Bump the semantic version within files",
-		Long:  bumpDesc,
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Use:     "bump",
+		Short:   "Bump the semantic version within files",
+		Long:    bumpLongDesc,
+		Example: bumpExamples,
+		Args:    cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
 			return bumpFiles(bmpCmd.Opts, out)
 		},
 	}
@@ -90,9 +86,9 @@ func bumpFiles(opts bumpOptions, out io.Writer) error {
 		return err
 	}
 
-	tsks := []task.Runner{
-		before.Task{},
+	tasks := []task.Runner{
 		gitcheck.Task{},
+		before.Task{},
 		gpgimport.Task{},
 		nextsemver.Task{},
 		nextcommit.Task{},
@@ -103,13 +99,7 @@ func bumpFiles(opts bumpOptions, out io.Writer) error {
 		after.Task{},
 	}
 
-	for _, tsk := range tsks {
-		if err := skip.Running(tsk.Skip, logging.Log(tsk.String(), tsk.Run))(ctx); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return task.Execute(ctx, tasks)
 }
 
 func setupBumpContext(opts bumpOptions, out io.Writer) (*context.Context, error) {
@@ -124,6 +114,7 @@ func setupBumpContext(opts bumpOptions, out io.Writer) (*context.Context, error)
 	ctx.Debug = opts.Debug
 	ctx.DryRun = opts.DryRun
 	ctx.NoPush = opts.NoPush
+	ctx.NoStage = opts.NoStage
 	ctx.Out = out
 
 	// Handle prerelease suffix if one is provided
@@ -133,15 +124,17 @@ func setupBumpContext(opts bumpOptions, out io.Writer) (*context.Context, error)
 			return nil, err
 		}
 	}
+	ctx.IgnoreExistingPrerelease = opts.IgnoreExistingPrerelease
+	ctx.FilterOnPrerelease = opts.FilterOnPrerelease
 
 	// Handle git config. Command line flag takes precedences
 	ctx.IgnoreDetached = opts.IgnoreDetached
-	if !ctx.IgnoreDetached {
+	if !ctx.IgnoreDetached && ctx.Config.Git != nil {
 		ctx.IgnoreDetached = ctx.Config.Git.IgnoreDetached
 	}
 
 	ctx.IgnoreShallow = opts.IgnoreShallow
-	if !ctx.IgnoreShallow {
+	if !ctx.IgnoreShallow && ctx.Config.Git != nil {
 		ctx.IgnoreShallow = ctx.Config.Git.IgnoreShallow
 	}
 

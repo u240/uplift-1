@@ -1,23 +1,3 @@
-# Copyright (c) 2022 Gemba Advantage
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# in the Software without restriction, including without limitation the rights
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-
 before:
   hooks:
     - ./scripts/completions.sh
@@ -55,12 +35,14 @@ archives:
   - id: uplift-archive
     format: tar.gz
     name_template: |-
-      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}-{{ .Arch }}
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}-
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
     builds:
       - uplift
-    replacements:
-      386: i386
-      amd64: x86_64
     format_overrides:
       - goos: windows
         format: zip
@@ -100,11 +82,8 @@ changelog:
 sboms:
   - artifacts: archive
 
-# Use Keyless experimental signing with cosign, see: https://github.com/sigstore/cosign/blob/main/KEYLESS.md
 signs:
   - cmd: cosign
-    env:
-      - COSIGN_EXPERIMENTAL=1
     certificate: "${artifact}.pem"
     output: true
     artifacts: checksum
@@ -113,16 +92,16 @@ signs:
       - "--output-certificate=${certificate}"
       - "--output-signature=${signature}"
       - "${artifact}"
+      - --yes
 
 docker_signs:
   - cmd: cosign
-    env:
-      - COSIGN_EXPERIMENTAL=1
     artifacts: manifests
     output: true
     args:
       - "sign"
-      - "${artifact}"
+      - "${artifact}@${digest}"
+      - --yes
 
 dockers:
   - image_templates:
@@ -180,10 +159,10 @@ docker_manifests:
 
 brews:
   - name: uplift
-    tap:
+    repository:
       owner: gembaadvantage
       name: homebrew-tap
-    folder: Formula
+    directory: Formula
     homepage: "https://upliftci.dev"
     description: "Semantic versioning the easy way. Powered by Conventional Commits. Built for use with CI"
     license: MIT
@@ -206,13 +185,13 @@ brews:
     dependencies:
       - name: git
 
-scoop:
-  bucket:
-    owner: gembaadvantage
-    name: scoops
-  homepage: "https://upliftci.dev"
-  description: "Semantic versioning the easy way. Powered by Conventional Commits. Built for use with CI"
-  license: MIT
+scoops:
+  - repository:
+      owner: gembaadvantage
+      name: scoops
+    homepage: "https://upliftci.dev"
+    description: "Semantic versioning the easy way. Powered by Conventional Commits. Built for use with CI"
+    license: MIT
 
 nfpms:
   - file_name_template: "{{ .ConventionalFileName }}"
@@ -294,14 +273,10 @@ announce:
   skip: "{{gt .Patch 0}}"
 
   slack:
-    enabled: true
+    enabled: false
     message_template: "Uplift {{ .Tag }} has been released. Find out details here: https://github.com/gembaadvantage/uplift/releases/tag/{{ .Tag }}"
     channel: "#topic-uplift-github"
     username: "Uplift"
-
-  twitter:
-    enabled: true
-    message_template: "Uplift {{ .Tag }} has been released. Find out details here: https://github.com/gembaadvantage/uplift/releases/tag/{{ .Tag }}"
 
 release:
   footer: |
@@ -310,4 +285,3 @@ release:
     ## What to do next?
 
     - Read the [documentation](https://upliftci.dev)
-    - Follow us on [Twitter](https://twitter.com/GA_Uplift)

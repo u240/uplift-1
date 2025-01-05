@@ -1,35 +1,14 @@
-/*
-Copyright (c) 2022 Gemba Advantage
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-
 package nextsemver
 
 import (
+	"fmt"
 	"strings"
 
 	semv "github.com/Masterminds/semver"
 	"github.com/apex/log"
+	git "github.com/purpleclay/gitz"
 
 	"github.com/gembaadvantage/uplift/internal/context"
-	"github.com/gembaadvantage/uplift/internal/git"
 	"github.com/gembaadvantage/uplift/internal/semver"
 )
 
@@ -43,25 +22,35 @@ func (t Task) String() string {
 }
 
 // Skip is disabled for this task
-func (t Task) Skip(ctx *context.Context) bool {
+func (t Task) Skip(_ *context.Context) bool {
 	return false
 }
 
 // Run the task
 func (t Task) Run(ctx *context.Context) error {
-	tag := git.LatestTag()
-	if tag.Ref == "" {
-		log.Debug("repository not tagged with version")
+	var tagSuffix string
+	if ctx.FilterOnPrerelease {
+		tagSuffix = buildTagSuffix(ctx)
 	}
-	ctx.CurrentVersion, _ = semver.Parse(tag.Ref)
+	tag, err := latestTag(ctx.GitClient, tagSuffix)
+	if err != nil {
+		return err
+	}
 
-	cl, err := git.Log(tag.Ref)
+	if tag == "" {
+		log.Debug("repository not tagged with version")
+	} else {
+		log.WithField("version", tag).Debug("identified latest version within repository")
+	}
+	ctx.CurrentVersion, _ = semver.Parse(tag)
+
+	glog, err := ctx.GitClient.Log(git.WithRefRange(git.HeadRef, tag))
 	if err != nil {
 		return err
 	}
 
 	// Identify any commit that will trigger the largest semantic version bump
-	inc := semver.ParseLog(cl)
+	inc := semver.ParseLogWithOptions(glog.Commits, semver.ParseOptions{TrimHeader: ctx.Changelog.TrimHeader})
 	if inc == semver.NoIncrement {
 		ctx.NoVersionChanged = true
 
@@ -70,26 +59,34 @@ func (t Task) Run(ctx *context.Context) error {
 	}
 	log.WithField("increment", string(inc)).Info("largest increment detected from commits")
 
-	if tag.Ref == "" {
-		tag.Ref = "v0.0.0"
+	if tag == "" {
+		tag = "v0.0.0"
 	}
 
 	// Remove the prefix if needed
 	if ctx.NoPrefix {
-		tag.Ref = strings.TrimPrefix(tag.Ref, "v")
+		tag = strings.TrimPrefix(tag, "v")
 	}
 
-	pver, _ := semv.NewVersion(tag.Ref)
+	pver, _ := semv.NewVersion(tag)
 
-	// Bump the semantic version based on the increment
-	var nxt semv.Version
+	// Handle the fact semver returns a pointer when it initialises a new
+	// semv.Version, but all of its methods work on a copy
+	nxt := *pver
+
+	if ctx.IgnoreExistingPrerelease {
+		log.Info("stripped existing prerelease metadata from version")
+		nxt, _ = nxt.SetPrerelease("")
+		nxt, _ = nxt.SetMetadata("")
+	}
+
 	switch inc {
 	case semver.MajorIncrement:
-		nxt = pver.IncMajor()
+		nxt = nxt.IncMajor()
 	case semver.MinorIncrement:
-		nxt = pver.IncMinor()
+		nxt = nxt.IncMinor()
 	case semver.PatchIncrement:
-		nxt = pver.IncPatch()
+		nxt = nxt.IncPatch()
 	}
 
 	// Append any prerelease suffixes
@@ -115,4 +112,39 @@ func (t Task) Run(ctx *context.Context) error {
 
 	log.WithField("version", ctx.NextVersion.Raw).Info("identified next semantic version")
 	return nil
+}
+
+func latestTag(gitc *git.Client, suffix string) (string, error) {
+	tags, err := gitc.Tags(git.WithShellGlob("*.*.*"),
+		git.WithSortBy(git.CreatorDateDesc, git.VersionDesc))
+	if err != nil {
+		return "", err
+	}
+
+	if len(tags) == 0 {
+		return "", nil
+	}
+
+	if suffix == "" {
+		return tags[0], nil
+	}
+
+	for _, t := range tags {
+		if strings.HasSuffix(t, suffix) {
+			return t, nil
+		}
+	}
+
+	return "", nil
+}
+
+func buildTagSuffix(ctx *context.Context) string {
+	var suffix string
+	if ctx.Prerelease != "" {
+		suffix = fmt.Sprintf("-%s", ctx.Prerelease)
+		if ctx.Metadata != "" {
+			suffix = fmt.Sprintf("%s+%s", suffix, ctx.Metadata)
+		}
+	}
+	return suffix
 }

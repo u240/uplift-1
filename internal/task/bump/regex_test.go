@@ -1,25 +1,3 @@
-/*
-Copyright (c) 2022 Gemba Advantage
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-
 package bump
 
 import (
@@ -29,15 +7,18 @@ import (
 
 	"github.com/gembaadvantage/uplift/internal/config"
 	"github.com/gembaadvantage/uplift/internal/context"
-	"github.com/gembaadvantage/uplift/internal/git"
 	"github.com/gembaadvantage/uplift/internal/semver"
+	git "github.com/purpleclay/gitz"
+	"github.com/purpleclay/gitz/gittest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 var commit = git.CommitDetails{
-	Author:  "joe.bloggs",
-	Email:   "joe.bloggs@example.com",
+	Author: git.Person{
+		Name:  "joe.bloggs",
+		Email: "joe.bloggs@example.com",
+	},
 	Message: "dummy commit",
 }
 
@@ -146,8 +127,8 @@ func TestRun_Regex(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			git.InitRepo(t)
-			path := WriteFile(t, tt.content)
+			gittest.InitRepository(t)
+			gittest.TempFile(t, "temp.json", tt.content)
 
 			ctx := &context.Context{
 				NextVersion: semver.Version{
@@ -157,7 +138,7 @@ func TestRun_Regex(t *testing.T) {
 				Config: config.Uplift{
 					Bumps: []config.Bump{
 						{
-							File: path,
+							File: "temp.json",
 							Regex: []config.RegexBump{
 								{
 									Pattern: tt.regex,
@@ -174,7 +155,7 @@ func TestRun_Regex(t *testing.T) {
 				t.Errorf("unexpected error: %s", err)
 			}
 
-			actual := ReadFile(t, path)
+			actual := ReadFile(t, "temp.json")
 
 			if actual != tt.expected {
 				t.Errorf("Expected:\n%s\nbut received:\n%s", tt.expected, actual)
@@ -184,8 +165,8 @@ func TestRun_Regex(t *testing.T) {
 }
 
 func TestRun_RegexForceSemanticVersion(t *testing.T) {
-	git.InitRepo(t)
-	path := WriteFile(t, "version: 0.1.0")
+	gittest.InitRepository(t)
+	gittest.TempFile(t, "temp.txt", "version: 0.1.0")
 
 	ctx := &context.Context{
 		NextVersion: semver.Version{
@@ -195,7 +176,7 @@ func TestRun_RegexForceSemanticVersion(t *testing.T) {
 		Config: config.Uplift{
 			Bumps: []config.Bump{
 				{
-					File: path,
+					File: "temp.txt",
 					Regex: []config.RegexBump{
 						{
 							Pattern: "version: $VERSION",
@@ -210,12 +191,13 @@ func TestRun_RegexForceSemanticVersion(t *testing.T) {
 	err := Task{}.Run(ctx)
 	require.NoError(t, err)
 
-	actual := ReadFile(t, path)
+	actual := ReadFile(t, "temp.txt")
 	assert.Equal(t, "version: 0.2.0", actual)
 }
 
 func TestRun_RegexDryRun(t *testing.T) {
-	path := WriteFile(t, "version: 0.1.0")
+	gittest.InitRepository(t)
+	gittest.TempFile(t, "temp.txt", "version: 0.1.0")
 
 	ctx := &context.Context{
 		NextVersion: semver.Version{
@@ -224,7 +206,7 @@ func TestRun_RegexDryRun(t *testing.T) {
 		Config: config.Uplift{
 			Bumps: []config.Bump{
 				{
-					File: path,
+					File: "temp.txt",
 					Regex: []config.RegexBump{
 						{
 							Pattern: "version: $VERSION",
@@ -239,7 +221,7 @@ func TestRun_RegexDryRun(t *testing.T) {
 	err := Task{}.Run(ctx)
 	require.NoError(t, err)
 
-	actual := ReadFile(t, path)
+	actual := ReadFile(t, "temp.txt")
 	assert.Equal(t, "version: 0.1.0", actual)
 }
 
@@ -267,8 +249,8 @@ func TestRun_RegexFileDoesNotExist(t *testing.T) {
 }
 
 func TestRun_RegexNotAllPathsMatch(t *testing.T) {
-	git.InitRepo(t)
-	path := WriteFile(t, "version: 0.1.0")
+	gittest.InitRepository(t)
+	gittest.TempFile(t, "test.txt", "version: 0.1.0")
 
 	ctx := &context.Context{
 		NextVersion: semver.Version{
@@ -277,7 +259,7 @@ func TestRun_RegexNotAllPathsMatch(t *testing.T) {
 		Config: config.Uplift{
 			Bumps: []config.Bump{
 				{
-					File: path,
+					File: "test.txt",
 					Regex: []config.RegexBump{
 						{
 							Pattern: "version: $VERSION",
@@ -294,16 +276,16 @@ func TestRun_RegexNotAllPathsMatch(t *testing.T) {
 	err := Task{}.Run(ctx)
 	require.Error(t, err)
 
-	actual := ReadFile(t, path)
+	actual := ReadFile(t, "test.txt")
 	assert.Equal(t, "version: 0.1.0", actual)
 }
 
 func TestRun_RegexMultipleFiles(t *testing.T) {
-	git.InitRepo(t)
+	gittest.InitRepository(t)
 
 	contents := "version: 0.1.0"
-	file1 := WriteFile(t, contents)
-	file2 := WriteFile(t, contents)
+	gittest.TempFile(t, "test1.txt", contents)
+	gittest.TempFile(t, "test2.txt", contents)
 
 	ctx := &context.Context{
 		NextVersion: semver.Version{
@@ -313,7 +295,7 @@ func TestRun_RegexMultipleFiles(t *testing.T) {
 		Config: config.Uplift{
 			Bumps: []config.Bump{
 				{
-					File: file1,
+					File: "test1.txt",
 					Regex: []config.RegexBump{
 						{
 							Pattern: "version: $VERSION",
@@ -321,7 +303,7 @@ func TestRun_RegexMultipleFiles(t *testing.T) {
 					},
 				},
 				{
-					File: file2,
+					File: "test2.txt",
 					Regex: []config.RegexBump{
 						{
 							Pattern: "version: $VERSION",
@@ -336,16 +318,16 @@ func TestRun_RegexMultipleFiles(t *testing.T) {
 	require.NoError(t, err)
 
 	expected := fmt.Sprintf("version: %s", ctx.NextVersion.Raw)
-	actual1 := ReadFile(t, file1)
+	actual1 := ReadFile(t, "test1.txt")
 	assert.Equal(t, expected, actual1)
 
-	actual2 := ReadFile(t, file2)
+	actual2 := ReadFile(t, "test2.txt")
 	assert.Equal(t, expected, actual2)
 }
 
 func TestRun_RegexNonMatchingRegex(t *testing.T) {
-	git.InitRepo(t)
-	file := WriteFile(t, "version: 0.1.0")
+	gittest.InitRepository(t)
+	gittest.TempFile(t, "test.txt", "version: 0.1.0")
 
 	ctx := &context.Context{
 		NextVersion: semver.Version{
@@ -354,7 +336,7 @@ func TestRun_RegexNonMatchingRegex(t *testing.T) {
 		Config: config.Uplift{
 			Bumps: []config.Bump{
 				{
-					File: file,
+					File: "test.txt",
 					Regex: []config.RegexBump{
 						{
 							Pattern: "noMatch: $VERSION",
@@ -370,10 +352,10 @@ func TestRun_RegexNonMatchingRegex(t *testing.T) {
 }
 
 func TestRun_RegexNextVersionMatchesExistingVersion(t *testing.T) {
-	git.InitRepo(t)
-	file := WriteFile(t, "version: 0.1.0")
+	gittest.InitRepository(t)
+	gittest.TempFile(t, "test.txt", "version: 0.1.0")
 
-	efi, _ := os.Stat(file)
+	efi, _ := os.Stat("test.txt")
 
 	ctx := &context.Context{
 		NextVersion: semver.Version{
@@ -382,7 +364,7 @@ func TestRun_RegexNextVersionMatchesExistingVersion(t *testing.T) {
 		Config: config.Uplift{
 			Bumps: []config.Bump{
 				{
-					File: file,
+					File: "test.txt",
 					Regex: []config.RegexBump{
 						{
 							Pattern: "version: $VERSION",
@@ -397,19 +379,16 @@ func TestRun_RegexNextVersionMatchesExistingVersion(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check that the file has not been modified
-	afi, _ := os.Stat(file)
+	afi, _ := os.Stat("test.txt")
 	assert.Equal(t, efi.ModTime(), afi.ModTime())
 }
 
 func TestRun_RegexMalformedRegexError(t *testing.T) {
-	git.MkTmpDir(t)
-	file := WriteFile(t, "version: 0.1.0")
-
 	ctx := &context.Context{
 		Config: config.Uplift{
 			Bumps: []config.Bump{
 				{
-					File: file,
+					File: "file.txt",
 					Regex: []config.RegexBump{
 						{
 							Pattern: "[",
@@ -424,26 +403,6 @@ func TestRun_RegexMalformedRegexError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func WriteFile(t *testing.T, s string) string {
-	t.Helper()
-
-	current, err := os.Getwd()
-	require.NoError(t, err)
-
-	file, err := os.CreateTemp(current, "*")
-	require.NoError(t, err)
-
-	_, err = file.WriteString(s)
-	require.NoError(t, err)
-	require.NoError(t, file.Close())
-
-	t.Cleanup(func() {
-		require.NoError(t, os.Remove(file.Name()))
-	})
-
-	return file.Name()
-}
-
 func ReadFile(t *testing.T, path string) string {
 	t.Helper()
 
@@ -454,9 +413,8 @@ func ReadFile(t *testing.T, path string) string {
 }
 
 func TestRun_RegexMavenPom(t *testing.T) {
-	git.InitRepo(t)
-
-	file := WriteFile(t, `<?xml version="1.0" encoding="UTF-8"?>
+	gittest.InitRepository(t)
+	gittest.TempFile(t, "pom.xml", `<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
@@ -489,7 +447,7 @@ func TestRun_RegexMavenPom(t *testing.T) {
 		Config: config.Uplift{
 			Bumps: []config.Bump{
 				{
-					File: file,
+					File: "pom.xml",
 					Regex: []config.RegexBump{
 						{
 							Pattern: `\s{4}<version>$VERSION</version>`,
@@ -504,7 +462,7 @@ func TestRun_RegexMavenPom(t *testing.T) {
 	err := Task{}.Run(ctx)
 	require.NoError(t, err)
 
-	actual := ReadFile(t, file)
+	actual := ReadFile(t, "pom.xml")
 	assert.Equal(t, `<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -532,9 +490,8 @@ func TestRun_RegexMavenPom(t *testing.T) {
 }
 
 func TestRun_RegexHelmChart(t *testing.T) {
-	git.InitRepo(t)
-
-	file := WriteFile(t, `apiVersion: v2
+	gittest.InitRepository(t)
+	gittest.TempFile(t, "Chart.yaml", `apiVersion: v2
 name: test-chart
 description: This is a test chart
 version: 0.1.0
@@ -548,7 +505,7 @@ appVersion: v0.1.0`)
 		Config: config.Uplift{
 			Bumps: []config.Bump{
 				{
-					File: file,
+					File: "Chart.yaml",
 					Regex: []config.RegexBump{
 						{
 							Pattern: "version: $VERSION",
@@ -568,7 +525,7 @@ appVersion: v0.1.0`)
 	err := Task{}.Run(ctx)
 	require.NoError(t, err)
 
-	actual := ReadFile(t, file)
+	actual := ReadFile(t, "Chart.yaml")
 	assert.Equal(t, `apiVersion: v2
 name: test-chart
 description: This is a test chart

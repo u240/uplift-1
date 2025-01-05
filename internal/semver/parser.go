@@ -1,32 +1,18 @@
-/*
-Copyright (c) 2022 Gemba Advantage
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-
 package semver
 
-import "regexp"
+import (
+	"strings"
+
+	git "github.com/purpleclay/gitz"
+)
 
 // Increment defines the different types of increment that can be performed
 // against a semantic version
 type Increment string
+
+type ParseOptions struct {
+	TrimHeader bool
+}
 
 const (
 	// NoIncrement represents no increment change to a semantic version
@@ -39,28 +25,107 @@ const (
 	MajorIncrement Increment = "Major"
 )
 
-var (
-	breakingBang = regexp.MustCompile(`(?im).*(\w+)(\(.*\))?!:.*`)
-	breaking     = regexp.MustCompile("(?im).*BREAKING CHANGE:.*")
-	feature      = regexp.MustCompile(`(?im).*feat(\(.*\))?:.*`)
-	fix          = regexp.MustCompile(`(?im).*fix(\(.*\))?:.*`)
+const (
+	colonSpace     = ": "
+	featUpper      = "FEAT"
+	fixUpper       = "FIX"
+	breaking       = "BREAKING CHANGE: "
+	breakingHyphen = "BREAKING-CHANGE: "
+	breakingBang   = '!'
 )
 
 // ParseLog will identify the maximum semantic increment by parsing the commit
 // log against the conventional commit standards defined, @see:
 // https://www.conventionalcommits.org/en/v1.0.0/
-func ParseLog(log string) Increment {
-	if breakingBang.MatchString(log) || breaking.MatchString(log) {
-		return MajorIncrement
+func ParseLog(log []git.LogEntry) Increment {
+	return ParseLogWithOptions(log, ParseOptions{TrimHeader: false})
+}
+
+func ParseLogWithOptions(log []git.LogEntry, options ParseOptions) Increment {
+	mode := NoIncrement
+	for _, entry := range log {
+		// Check for the existence of a conventional commit type
+		colonSpaceIdx := strings.Index(entry.Message, colonSpace)
+		if colonSpaceIdx == -1 {
+			continue
+		}
+
+		startIdx := 0
+		// Commit messages may have leading lines before the conventional commit type
+		if options.TrimHeader {
+			startIdx = FindStartIdx(entry.Message)
+		}
+
+		leadingType := strings.ToUpper(entry.Message[startIdx:colonSpaceIdx])
+		if leadingType[len(leadingType)-1] == breakingBang || multilineBreaking(entry.Message) {
+			return MajorIncrement
+		}
+
+		// Only feat and fix types now make a difference. Both have the same first letter
+		if leadingType[0] != featUpper[0] {
+			continue
+		}
+
+		if mode == MinorIncrement {
+			continue
+		}
+
+		if contains(leadingType, featUpper) {
+			mode = MinorIncrement
+		} else if contains(leadingType, fixUpper) {
+			mode = PatchIncrement
+		}
 	}
 
-	if feature.MatchString(log) {
-		return MinorIncrement
+	return mode
+}
+
+func contains(str, prefix string) bool {
+	if str == prefix {
+		return true
 	}
 
-	if fix.MatchString(log) {
-		return PatchIncrement
+	if strings.HasPrefix(str, prefix) {
+		if len(str) > len(prefix) &&
+			(str[len(prefix)] == '(' && str[len(str)-1] == ')') {
+			return true
+		}
 	}
 
-	return NoIncrement
+	return false
+}
+
+func multilineBreaking(msg string) bool {
+	n := strings.Count(msg, "\n")
+	if n == 0 {
+		return false
+	}
+
+	idx := strings.LastIndex(msg, "\n")
+
+	if idx == len(msg) {
+		// There is a newline at the end of the string, so jump back one
+		if idx = strings.LastIndex(msg[:len(msg)-1], "\n"); idx == -1 {
+			return false
+		}
+	}
+
+	footer := msg[idx+1:]
+	return strings.HasPrefix(footer, "BREAKING CHANGE: ") ||
+		strings.HasPrefix(footer, "BREAKING-CHANGE: ")
+}
+
+func FindStartIdx(msg string) int {
+	colonIdx := strings.Index(msg, colonSpace)
+	if colonIdx == -1 {
+		return 0
+	}
+
+	trimmedMsg := msg[:colonIdx]
+	leadingLineBreakIdx := strings.LastIndex(trimmedMsg, "\n")
+	if leadingLineBreakIdx == -1 {
+		return 0
+	}
+
+	return leadingLineBreakIdx + 1
 }

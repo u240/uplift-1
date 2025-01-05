@@ -4,6 +4,7 @@
 *.dll
 *.so
 *.dylib
+/uplift
 
 # Test binary, built with `go test -c`
 *.test
@@ -15,14 +16,19 @@
 # vendor/
 
 # Built dependencies
-bin/
 completions/
 manpages/
-uplift
+./uplift
 
 # GoReleaser build output
 dist/
 
 # Mkdocs related
-docs/site
+site/
 .DS_store
+
+# VSCode
+.vscode/
+
+# Nix
+.direnv

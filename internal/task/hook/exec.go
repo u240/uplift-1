@@ -1,29 +1,8 @@
-/*
-Copyright (c) 2022 Gemba Advantage
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-
 package hook
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -47,7 +26,7 @@ type ExecOptions struct {
 }
 
 // Exec will execute a series of shell commands or scripts
-func Exec(ctx context.Context, cmds []string, opts ExecOptions) error {
+func Exec(_ context.Context, cmds []string, opts ExecOptions) error {
 	env := os.Environ()
 	if len(opts.Env) > 0 {
 		renv, err := resolveEnv(opts.Env)
@@ -119,8 +98,14 @@ func resolveEnv(env []string) ([]string, error) {
 				return []string{}, err
 			}
 
-			// Append map to slice
 			for k, v := range dotenv {
+				// A breaking change was introduced during the release of godotenv 1.5.0
+				// that parsing an env file without a key e.g. '=VALUE' no longer returns
+				// an error. Ensure this behaviour persists within uplift
+				if k == "" {
+					return []string{}, errors.New("Can't separate key from value")
+				}
+
 				denv := fmt.Sprintf("%s=%s", k, v)
 
 				log.WithField("var", denv).Debug("Injecting env var")

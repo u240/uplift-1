@@ -1,25 +1,3 @@
-/*
-Copyright (c) 2022 Gemba Advantage
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-
 package main
 
 import (
@@ -27,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/gembaadvantage/uplift/internal/config"
-	"github.com/gembaadvantage/uplift/internal/git"
+	"github.com/purpleclay/gitz/gittest"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
@@ -43,38 +21,6 @@ const (
 	AfterTagFile        = HookDir + "afterTag.out"
 	AfterChangelogFile  = HookDir + "afterChangelog.out"
 )
-
-func untaggedRepo(t *testing.T, c ...string) {
-	t.Helper()
-
-	git.InitRepo(t)
-	git.EmptyCommits(t, c...)
-	require.Len(t, git.AllTags(), 0)
-}
-
-func taggedRepo(t *testing.T, tag string, c ...string) {
-	t.Helper()
-
-	git.InitRepo(t)
-	git.EmptyCommitsAndTag(t, tag, c...)
-}
-
-func tagRepoWith(t *testing.T, tags []string) {
-	t.Helper()
-
-	git.InitRepo(t)
-	git.TimeBasedTagSeries(t, tags)
-}
-
-func upliftConfigFile(t *testing.T, name string) {
-	t.Helper()
-
-	// Ensure .uplift.yml file is committed to repository
-	yml := "annotatedTags: true"
-
-	err := os.WriteFile(name, []byte(yml), 0o644)
-	require.NoError(t, err)
-}
 
 func noChangesPushed() *globalOptions {
 	return &globalOptions{NoPush: true}
@@ -100,7 +46,7 @@ func configWithHooks(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := &config.Uplift{
-		Hooks: config.Hooks{
+		Hooks: &config.Hooks{
 			Before:          []string{"touch " + BeforeFile},
 			BeforeBump:      []string{"touch " + BeforeBumpFile},
 			BeforeTag:       []string{"touch " + BeforeTagFile},
@@ -121,5 +67,7 @@ func configWithHooks(t *testing.T) {
 	require.NoError(t, err)
 
 	// Ensure files are committed to prevent dirty repository
-	git.CommitFiles(t, ".gitignore", ".uplift.yml")
+	gittest.StageFile(t, ".gitignore")
+	gittest.StageFile(t, ".uplift.yml")
+	gittest.Commit(t, "chore: add files")
 }

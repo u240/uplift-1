@@ -1,25 +1,3 @@
-/*
-Copyright (c) 2022 Gemba Advantage
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-
 package main
 
 import (
@@ -32,13 +10,16 @@ import (
 )
 
 type globalOptions struct {
-	DryRun         bool
-	Debug          bool
-	NoPush         bool
-	Silent         bool
-	IgnoreDetached bool
-	IgnoreShallow  bool
-	ConfigDir      string
+	DryRun                   bool
+	Debug                    bool
+	NoPush                   bool
+	NoStage                  bool
+	Silent                   bool
+	IgnoreExistingPrerelease bool
+	FilterOnPrerelease       bool
+	IgnoreDetached           bool
+	IgnoreShallow            bool
+	ConfigDir                string
 }
 type rootCommand struct {
 	Cmd  *cobra.Command
@@ -53,10 +34,11 @@ func newRootCmd(out io.Writer) *rootCommand {
 	}
 
 	cmd := &cobra.Command{
-		Use:          "uplift",
-		Short:        "Semantic versioning the easy way",
-		SilenceUsage: true,
-		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		Use:           "uplift",
+		Short:         "Semantic versioning the easy way",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		PersistentPreRun: func(_ *cobra.Command, _ []string) {
 			if rootCmd.Opts.Debug {
 				log.SetLevel(log.InvalidLevel)
 			}
@@ -74,9 +56,12 @@ func newRootCmd(out io.Writer) *rootCommand {
 	pf.BoolVar(&rootCmd.Opts.DryRun, "dry-run", false, "run without making any changes")
 	pf.BoolVar(&rootCmd.Opts.Debug, "debug", false, "show me everything that happens")
 	pf.BoolVar(&rootCmd.Opts.NoPush, "no-push", false, "no changes will be pushed to the git remote")
+	pf.BoolVar(&rootCmd.Opts.NoStage, "no-stage", false, "no changes will be git staged")
 	pf.BoolVar(&rootCmd.Opts.Silent, "silent", false, "silence all logging")
 	pf.BoolVar(&rootCmd.Opts.IgnoreDetached, "ignore-detached", false, "ignore reported git detached HEAD error")
 	pf.BoolVar(&rootCmd.Opts.IgnoreShallow, "ignore-shallow", false, "ignore reported git shallow clone error")
+	pf.BoolVar(&rootCmd.Opts.IgnoreExistingPrerelease, "ignore-existing-prerelease", false, "ignore any existing prerelease when calculating next semantic version")
+	pf.BoolVar(&rootCmd.Opts.FilterOnPrerelease, "filter-on-prerelease", false, "filter tags that only match the provided prerelease when calculating next semantic version")
 
 	cmd.AddCommand(newVersionCmd(out),
 		newCompletionCmd(out),
@@ -85,6 +70,7 @@ func newRootCmd(out io.Writer) *rootCommand {
 		newReleaseCmd(rootCmd.Opts, out).Cmd,
 		newChangelogCmd(rootCmd.Opts, out).Cmd,
 		newManPageCmd(out).Cmd,
+		newCheckCmd(rootCmd.Opts, out),
 	)
 
 	rootCmd.Cmd = cmd
