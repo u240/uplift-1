@@ -14,8 +14,8 @@ require (
 	github.com/purpleclay/gitz v0.11.2
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
-	github.com/tidwall/gjson v1.18.0
-	github.com/tidwall/sjson v1.2.5
+	github.com/tidwall/gjson v1.20.2
+	github.com/tidwall/sjson v1.2.9
 	gopkg.in/yaml.v3 v3.0.1
 	mvdan.cc/sh/v3 v3.12.0
 )
@@ -39,7 +39,7 @@ require (
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
-	github.com/tidwall/pretty v1.2.0 // indirect
+	github.com/tidwall/pretty v1.3.0 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
